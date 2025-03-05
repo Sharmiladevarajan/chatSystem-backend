@@ -5,8 +5,6 @@ const { RunnableSequence } = require("@langchain/core/runnables");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { ChatPromptTemplate } = require("@langchain/core/prompts");
 
-const OPENAI_API_KEY=" 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"
-
 async function createOrUpdate(req, res) {
   try {
     const { userId, chatId, messages } = req.body;
