@@ -4,28 +4,29 @@ const { z } = require("zod");
 const { RunnableSequence } = require("@langchain/core/runnables");
 const { StructuredOutputParser } = require("@langchain/core/output_parsers");
 const { ChatPromptTemplate } = require("@langchain/core/prompts");
+const dbConnection = require('../database/dbConnection');
+require('dotenv').config()
+const OPENAI_API_KEY= process.env.KEY;
 
-async function createOrUpdate(req, res) {
+async function createOrUpdateChat(req, res) {
   try {
-    const { userId, chatId, messages } = req.body;
-    const hasFileAttachment=0
+    const { userId, chatId, messages, modelId } = req.body;
+    const hasFileAttachment = 0;
     let chatName;
-
-    if (!userId || !messages || messages.length === 0) {
-      return res.status(400).send({ message: "UserId and Messages are required" });
-    }
-
     let newChatId = chatId;
 
-    // Chat Creation if chatId not provided
-    if (!chatId) {
-       chatName = await openAI(messages[messages.length - 1].content)
+    if (!userId || !messages || messages.length === 0 || (chatId === undefined && !modelId)) {
+      return res.status(400).send({ message: "UserId, Messages, and ModelId are required for new chats" });
+    }
 
+    if (!chatId) {
+      // Create New Chat
+      chatName = await openAI(messages[messages.length - 1].content);
       console.log("Chat Name Generated:", chatName);
 
       const chatResult = await executeQuery(
-        `INSERT INTO chats (userId, content, chatName, createdAt, isActive) VALUES (UUID_TO_BIN(?), ?, ?, NOW(), TRUE)`,
-        [userId, messages[messages.length - 1].content, chatName]
+        `INSERT INTO chats (userId, content, chatName, modelId, createdAt, isActive) VALUES (UUID_TO_BIN(?), ?, ?, UUID_TO_BIN(?), NOW(), TRUE)`,
+        [userId, messages[messages.length - 1].content, chatName, modelId]
       );
 
       if (chatResult.affectedRows === 0) {
@@ -45,7 +46,7 @@ async function createOrUpdate(req, res) {
       console.log("New Chat Created with ID:", newChatId);
     }
 
-    // User Message Insertion
+    // Insert User Message
     const messageResult = await executeQuery(
       `INSERT INTO messages (chatId, role, content, hasFileAttachment, createdAt, isActive) VALUES (UUID_TO_BIN(?), ?, ?, ?, NOW(), TRUE)`,
       [newChatId, "user", messages[messages.length - 1].content, hasFileAttachment]
@@ -55,26 +56,11 @@ async function createOrUpdate(req, res) {
       throw new Error("Message insertion failed");
     }
 
-    // Bot Response Generation
-    const botResponse = await openAiLlm(messages);
-
-    console.log("AI Response:", botResponse);
-
-    const insertMessage=await executeQuery(
-      `INSERT INTO messages (chatId, role, content, hasFileAttachment, createdAt, isActive) VALUES (UUID_TO_BIN(?), ?, ?, ?, NOW(), TRUE)`,
-      [newChatId, "assistant", botResponse, hasFileAttachment]
-    );
-    console.log(insertMessage,"a58fee86-f8eb-11ef-b3ac-3c0af3902f08");
-    
-
-    if(insertMessage){
-      res.status(201).send({
-        chatId: newChatId,
-        message: "Success",
-        data: botResponse,
-        newChat:chatName
-      });
-    }
+    res.status(201).send({
+      chatId: newChatId,
+      message: chatId ? "Chat Updated Successfully" : "Chat Created Successfully",
+      newChat: chatName || undefined,
+    });
   } catch (error) {
     console.error("Database Error:", error);
     res.status(500).send({
@@ -84,25 +70,51 @@ async function createOrUpdate(req, res) {
   }
 }
 
-async function openAiLlm(messages) {
+// OpenAI LLM API
+async function generateBotResponse(req, res) {
   try {
-    console.log("Invoking AI with Messages:", messages);
+    const { messages } = req.body;
 
-    const llm = createOpenAIConnection();
-    const aiMsg = await llm.invoke(messages);
-    
-
-    if (!aiMsg || !aiMsg.content) {
-      throw new Error("Invalid AI response");
+    if (!messages || messages.length === 0) {
+      return res.status(400).send({ message: "Messages are required" });
     }
-console.log(typeof(aiMsg.content));
 
-    return aiMsg.content;
+    const botResponse = await openAiLlm(messages);
+    console.log("AI Response:", botResponse);
+
+    res.status(200).send({
+      message: "AI Response Generated Successfully",
+      data: botResponse,
+    });
   } catch (error) {
-    console.error("AI Error:", error);
-    return "I'm unable to process your request at the moment.";
+    console.error("OpenAI Error:", error);
+    res.status(500).send({
+      message: "OpenAI API Error",
+      error: error.message,
+    });
   }
 }
+
+
+// async function openAiLlm(messages) {
+//   try {
+//     console.log("Invoking AI with Messages:", messages);
+
+//     const llm = createOpenAIConnection();
+//     const aiMsg = await llm.invoke(messages);
+    
+
+//     if (!aiMsg || !aiMsg.content) {
+//       throw new Error("Invalid AI response");
+//     }
+// console.log(typeof(aiMsg.content));
+
+//     return aiMsg.content;
+//   } catch (error) {
+//     console.error("AI Error:", error);
+//     return "I'm unable to process your request at the moment.";
+//   }
+// }
 
 function createOpenAIConnection() {
   return new ChatOpenAI({
@@ -148,4 +160,88 @@ async function openAI(message) {
   return response.answer
 }
 
-module.exports = { createOrUpdate, openAiLlm,openAI };
+
+
+
+
+
+// Navanitha apis
+
+
+async function fetchAllChats(req, res) {
+  let connection;
+  try {
+    connection = await dbConnection.getConnection();
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).send({ message: "User ID is required" });
+    }
+
+    const [chats] = await connection.query("SELECT content,chatName, BIN_TO_UUID(userId) as userId, BIN_TO_UUID(chatId) as chatId FROM chats WHERE userId = UUID_TO_BIN(?) and isActive=1;", [userId]);
+    console.log("DB res",chats)
+    if(!chats || chats.length === 0){
+      //console.log("empty")
+      return res.status(404).json({ message: "No Chats for this user " });
+    }
+
+    return res.status(200).json({ message: "Chats retrieved successfully", data: chats });
+  } 
+  catch (error) {
+    return res.status(500).send({ message: "Internal server error", error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+}
+
+async function fetchChat(req, res) {
+  let connection;
+  try {
+
+    connection = await dbConnection.getConnection();
+    const { chatId } = req.query;
+
+    if (!chatId) {
+      return res.status(400).send({ message: "Chat ID is required" });
+    }
+
+    const [chats] = await connection.query("SELECT content,chatName, BIN_TO_UUID(userId) as userId, BIN_TO_UUID(chatId) as chatId FROM chats WHERE chatId = UUID_TO_BIN(?) and isActive=1;", [chatId]);
+
+    return res.status(200).json({ message: "Chats retrieved successfully", data: chats });
+  } 
+  catch (error) {
+    return res.status(500).send({ message: "Internal server error", error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+}
+
+async function deleteChat(req, res) {
+  let connection;
+  try {
+
+    connection = await dbConnection.getConnection();
+    const { chatId } = req.body;
+
+    if (!chatId) {
+      return res.status(400).send({ message: "Chat ID is required" });
+    }
+
+    const [chats] = await connection.query("UPDATE chats SET isActive = 0 WHERE chatId = UUID_TO_BIN(?)", [chatId]);
+    console.log("Delete",chats)
+    if (chats.affectedRows > 0) {
+      return res.status(200).json({ success: true, message: "Chat status updated successfully" });
+    } 
+    else {
+      return res.status(404).json({ success: false, message: "Chat not found or no changes made" });
+    }
+  } 
+
+  catch (error) {
+    return res.status(500).send({ message: "Internal server error", error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+}
+
+module.exports = { createOrUpdateChat,openAI, fetchAllChats,fetchChat, deleteChat };

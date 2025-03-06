@@ -19,57 +19,46 @@ console.log(port);
 
 
 app.post("/createOrUpdate", async (req, res) => {
-    
-    let result = await queryFile.createOrUpdate(req, res);
-return result})
-app.post("/openAI", async (req, res) => {
-    
-  let result = await queryFile.openAI(req, res);
-return result})
+    try {
+      let result = await queryFile.createOrUpdateChat(req, res);
+      return result
+    } catch (error) {
+      console.log(error);
+      
+    }
+    })
 
-
-    
-
-
-// const express = require('express');
-// const mysql = require('mysql2/promise');
-// const app = express();
-// const PORT = 8080;
-
-// app.use(express.json());
-
-// // MySQL Connection Pool
-// const pool = mysql.createPool({
-//   host: 'localhost',
-//   user: 'root',
-//   password: 'Sharmi@26m',
-//   database: 'chatgpt',
+app.get("/fetchAllchats", async (req, res) => {
+  try {
+    console.log("API Called: /fetchAllchats"); 
+    await queryFile.fetchAllChats(req, res);
+  } catch (error) {
+    console.error("Error in /fetchAllchats:", error);
+    res.status(500).send({ message: "Server error" });
+  }
   
-// });
-
-// // API to Get Data from Multiple Tables
-// app.get('/data', async (req, res) => {
-//   try {
-//     const connection = await pool.getConnection();
-//     const [rows] = await connection.query(`SELECT BIN_TO_UUID(userId) AS userId, userName, userEmail FROM users`);
-//     console.log(rows);
-    
+});
+app.get("/fetchChat", async (req, res) => {
+  try {
+    console.log("API Called: /fetchChat"); 
+    await queryFile.fetchChat(req, res);
+  } catch (error) {
+    console.error("Error in /fetchAllChats:", error);
+    res.status(500).send({ message: "Server error" });
+  }
   
-//     connection.release();
+});
 
-//     res.status(200).send({
-//       data: rows,
-//       statusMessage: "success"
-//     });
-//   } catch (err) {
-//     console.error('Database Error:', err);
-//     res.status(500).send({
-//       message: 'Database Error',
-//       error: err
-//     });
-//   }
-// });
+app.post("/deleteChat", async (req, res) => {
+  try {
+    console.log("API Called: /deleteChat"); 
+    await queryFile.deleteChat(req, res);
+  } catch (error) {
+    console.error("Error in /deleteChats:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+  
+});
 
-// app.listen(PORT, () => {
-//   console.log(`Server running on http://localhost:${PORT}`);
-// });
+
+    
