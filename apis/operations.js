@@ -145,4 +145,130 @@ async function deleteChat(req, res) {
   }
 }
 
+
+async function fetchAllChats(req, res) {
+  let connection;
+  try {
+    connection = await dbConnection.getConnection();
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).send({ message: "User ID is required" });
+    }
+    const [userCheck] = await connection.query("SELECT * FROM users WHERE userId = UUID_TO_BIN(?)", [userId]);
+    if (userCheck.length === 0) {
+      return res.status(404).json({ message: "User not found"});
+    }
+
+    const [chats] = await connection.query("SELECT content,chatName, BIN_TO_UUID(userId) as userId, BIN_TO_UUID(chatId) as chatId FROM chats c WHERE userId = UUID_TO_BIN(?) and isActive=1 ORDER BY c.createdAt DESC;", [userId]);
+    console.log("fetch all",chats)
+    if(!chats || chats.length === 0){
+
+      return res.status(404).json({ message: "No Chats for this user. Please create new chat." });
+    }
+
+    return res.status(200).json({ message: "Chats retrieved successfully", data: chats });
+  } 
+  catch (error) {
+    return res.status(500).send({ message: "Internal server error", error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+}
+
+async function fetchChat(req, res) {
+  let connection;
+  try {
+
+    connection = await dbConnection.getConnection();
+    const { chatId } = req.query;
+
+    if (!chatId) {
+      return res.status(400).send({ message: "Chat ID is required" });
+    }
+
+    const [chats] = await connection.query("SELECT BIN_TO_UUID(c.chatId) AS chatId,BIN_TO_UUID(c.userId) AS userId, IFNULL(BIN_TO_UUID(c.modelId), NULL) AS modelId,c.chatName AS chatName,c.chatName AS chatName, m.role, m.content,m.hasFileAttachment,m.createdAt FROM chats c LEFT JOIN messages m ON c.chatId = m.chatId WHERE c.chatId = UUID_TO_BIN(?) ORDER BY c.createdAt DESC;",[chatId]);
+
+  
+    if(!chats || chats.length === 0){
+
+      return res.status(404).json({ message: "No Chats found " });
+    }
+
+    const formattedChats = chats.reduce((acc, chat) => {
+      let existingChat = acc.find((c) => c.chatId === chat.chatId);
+    
+      if (!existingChat) {
+        existingChat = {
+          chatId: chat.chatId || null,
+          userId: chat.userId || null,
+          modelId: chat.modelId ?? null,
+          chatName: chat.chatName || "Unknown Chat",
+          messages: [],
+        };
+        acc.push(existingChat);
+      }
+    
+      if (chat.content) {
+        existingChat.messages.push({
+          role: chat.role || "unknown",
+          content: chat.content,
+          createAt:chat.createAt,
+          hasFileAttachment: !!chat.hasFileAttachment, // Convert to boolean
+        });
+      }
+    
+      return acc;
+    }, []);
+    
+    return res.status(200).json({ message: "Chats retrieved successfully", data: formattedChats });
+  } 
+  catch (error) {
+    return res.status(500).send({ message: "Internal server error", error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+}
+
+async function deleteChat(req, res) {
+  let connection;
+  try {
+
+    connection = await dbConnection.getConnection();
+    const { chatId } = req.body;
+
+    if (!chatId) {
+      return res.status(400).send({ message: "Chat ID is required" });
+    }
+
+    const [chats] = await connection.query("UPDATE chats SET isActive = 0 WHERE chatId = UUID_TO_BIN(?)", [chatId]);
+    
+    if (chats.affectedRows > 0) {
+      const [checkMessages] = await connection.query("SELECT * FROM messages WHERE chatId = UUID_TO_BIN(?)", [chatId]);
+      if (checkMessages.length > 0) {
+        const [result] = await connection.query("UPDATE messages SET isActive = 0 WHERE chatId = UUID_TO_BIN(?)", [chatId]);
+        if (result.affectedRows > 0) {
+        return res.status(200).json({ success: true, message: "Chat status updated successfully" });
+        }
+      }
+      else{
+        return res.status(200).json({ success: true, message: "Chat status updated successfully" });
+      }
+      
+     
+
+    } 
+    else {
+      return res.status(404).json({ success: false, message: "Chat not found or no changes made" });
+    }
+  } 
+
+  catch (error) {
+    return res.status(500).send({ message: "Internal server error", error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+}
+
+
 module.exports = { createOrUpdateChat, fetchAllChats,fetchChat, deleteChat };
